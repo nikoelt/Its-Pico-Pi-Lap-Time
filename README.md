@@ -13,10 +13,10 @@ This project implements a sophisticated lap timer for a BMW S1000RR motorcycle u
 
 ## Hardware Components
 - Raspberry Pi Pico
-- GNSS (GPS) module
-- LCD display
+- GNSS (GPS) module (I used https://www.waveshare.com/wiki/Pico-GPS-L76B - code overclocks module to 10hz sampling rate)
+- LCD display (I used www.waveshare.com/wiki/Pico-LCD-1.14)
 - Pulse output pin (for timing system integration) - Uses Raspberry Pi Pico for this
-- User input button - Uses LCD display for this
+- User input button - Uses LCD display controls for this
 
 ## Code Structure and Functionality
 
