@@ -1,7 +1,7 @@
 # Lap Timer for BMW S1000RR using Raspberry Pi Pico
 
 ## Project Overview
-This project implements a sophisticated lap timer for a BMW S1000RR motorcycle using a Raspberry Pi Pico. The system utilizes GPS data to accurately detect when the motorcycle crosses the finish line and sends a pulse signal. It features an LCD display for real-time status updates and a manual button for user-triggered pulse sending.
+This project implements a sophisticated lap timer for a BMW S1000RR motorcycle using a Raspberry Pi Pico. The system utilizes GPS data to accurately detect when the motorcycle crosses the finish line and sends a pulse signal. This pulse starts a new lap on the screen. It connects to the middle of the three prong plug on the right hand side of the frame (K46). It features an LCD display for real-time status updates and a manual button for user-triggered pulse sending.
 
 ## Key Features
 - GPS-based lap timing with finish line detection
