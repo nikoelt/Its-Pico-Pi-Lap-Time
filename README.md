@@ -17,6 +17,8 @@ This project implements a sophisticated lap timer for a BMW S1000RR motorcycle u
 - LCD display (I used www.waveshare.com/wiki/Pico-LCD-1.14)
 - Pulse output pin (for timing system integration) - Uses Raspberry Pi Pico for this
 - User input button - Uses LCD display controls for this
+- Relay - (I used KS0011 Keystudio 5V https://wiki.keyestudio.com/Ks0011_keyestudio_5V_Relay_Module)
+- 4.7K Resistor - to drop voltage from 12V to 10V (S1000RR specific requirement)
 
 ## Code Structure and Functionality
 
