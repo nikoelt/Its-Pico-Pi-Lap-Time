@@ -13,11 +13,14 @@ BUTTON_A_PIN = 15
 LCD_BL_PIN = 13
 
 # GNSS signal loss timeout (in milliseconds)
-GNSS_TIMEOUT = 60000  # 60 seconds
+GNSS_TIMEOUT = 180000  # 3 minutes
 
 # UART configuration
-INITIAL_BAUDRATE = 115200
-TARGET_BAUDRATE = 115200
+INITIAL_BAUDRATE = 9600
+TARGET_BAUDRATE = 9600
+
+# Pulse duration (in milliseconds)
+PULSE_DURATION_MS = 250  # Set the desired pulse duration here
 
 class AdaptiveKalmanFilter:
     def __init__(self, process_variance, measurement_variance, initial_value=0):
@@ -42,8 +45,7 @@ class GPSLapTrigger:
         {'right_lat': -27.690622, 'right_lon': 152.654567, 'left_lat': -27.690622, 'left_lon': 152.654688},
         {'right_lat': -27.228533, 'right_lon': 152.964891, 'left_lat': -27.228441, 'left_lon': 152.964919},
         {'right_lat': -28.262069, 'right_lon': 152.036330, 'left_lat': -28.262086, 'left_lon': 152.036433},
-        {'right_lat': -27.435013, 'right_lon': 153.042565, 'left_lat': -27.435171, 'left_lon': 153.042642},
-        {'right_lat': -27.434588, 'right_lon': 153.042670, 'left_lat': -27.434624, 'left_lon': 153.042529}
+        {'right_lat': -27.435013, 'right_lon': 153.042565, 'left_lat': -27.435171, 'left_lon': 153.042642}
     ]
 
     def __init__(self):
@@ -70,20 +72,16 @@ class GPSLapTrigger:
 
     def send_command(self, command):
         self.uart.write(command + '\r\n')
-        utime.sleep_ms(100)  # Give some time for the command to be processed
+        utime.sleep_ms(1000)  # Give more time for the command to be processed
 
     def configure_gnss(self):
         # Set GPS module to output at 10Hz
         self.send_command('$PMTK220,100*2F')
-        
-        # Change baud rate to 115200
-        self.send_command('$PMTK251,115200*1F')
-        
-        # Change the baud rate of UART to match the new baud rate of the GPS module
-        self.uart.init(baudrate=TARGET_BAUDRATE)
+        utime.sleep_ms(1000)  # Wait for 1 second
         
         # Enable GPRMC and GPGGA sentences only
         self.send_command('$PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28')
+        utime.sleep_ms(1000)  # Wait for 1 second
 
         self.log_message("GNSS configured for 10Hz updates")
 
@@ -191,9 +189,9 @@ class GPSLapTrigger:
 
     def send_pulse(self):
         self.pulse_pin.on()
-        utime.sleep_ms(100)
+        utime.sleep_ms(PULSE_DURATION_MS)  # Use the constant here
         self.pulse_pin.off()
-        self.log_message("Pulse sent")
+        self.log_message(f"Pulse sent (duration: {PULSE_DURATION_MS}ms)")
 
     def is_button_pressed(self) -> bool:
         if not self.button_a.value():
@@ -229,6 +227,8 @@ class GPSLapTrigger:
 
     def log_message(self, message: str):
         print(f"[{utime.ticks_ms()}] {message}")
+        with open("debug_log.txt", "a") as f:
+            f.write(f"[{utime.ticks_ms()}] {message}\n")
 
     def run(self):
         self.update_display()
