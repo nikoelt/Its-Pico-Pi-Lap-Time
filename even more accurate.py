@@ -17,7 +17,7 @@ GNSS_TIMEOUT = 180000  # 3 minutes
 
 # UART configuration
 INITIAL_BAUDRATE = 9600
-TARGET_BAUDRATE = 9600
+TARGET_BAUDRATE = 115200
 
 # Pulse duration (in milliseconds)
 PULSE_DURATION_MS = 250  # Set the desired pulse duration here
