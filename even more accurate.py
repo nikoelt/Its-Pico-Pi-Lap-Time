@@ -2,6 +2,7 @@ from machine import Pin, SPI, UART, PWM, Timer
 import utime
 import math
 from LCD import LCD_1inch14
+import gc
 
 # Pin configuration
 GNSS_TX_PIN = 0
@@ -20,7 +21,13 @@ INITIAL_BAUDRATE = 9600
 TARGET_BAUDRATE = 115200
 
 # Pulse duration (in milliseconds)
-PULSE_DURATION_MS = 250  # Set the desired pulse duration here
+PULSE_DURATION_MS = 250
+
+# Maximum buffer size (in bytes)
+MAX_BUFFER_SIZE = 1024
+
+# LCD update interval (in milliseconds)
+LCD_UPDATE_INTERVAL = 1000
 
 class AdaptiveKalmanFilter:
     def __init__(self, process_variance, measurement_variance, initial_value=0):
@@ -45,11 +52,12 @@ class GPSLapTrigger:
         {'right_lat': -27.690622, 'right_lon': 152.654567, 'left_lat': -27.690622, 'left_lon': 152.654688},
         {'right_lat': -27.228533, 'right_lon': 152.964891, 'left_lat': -27.228441, 'left_lon': 152.964919},
         {'right_lat': -28.262069, 'right_lon': 152.036330, 'left_lat': -28.262086, 'left_lon': 152.036433},
-        {'right_lat': -27.435013, 'right_lon': 153.042565, 'left_lat': -27.435171, 'left_lon': 153.042642}
+        {'right_lat': -27.435013, 'right_lon': 153.042565, 'left_lat': -27.435171, 'left_lon': 153.042642},
+        {'right_lat': -27.453118, 'right_lon': 153.043510, 'left_lat': -27.453697, 'left_lon': 153.043340}
     ]
 
     def __init__(self):
-        self.uart = UART(0, baudrate=INITIAL_BAUDRATE, tx=Pin(GNSS_TX_PIN), rx=Pin(GNSS_RX_PIN))
+        self.uart = None  # Will be initialized in setup_gnss
         self.pulse_pin = Pin(PULSE_PIN, Pin.OUT)
         self.button_a = Pin(BUTTON_A_PIN, Pin.IN, Pin.PULL_UP)
         
@@ -70,21 +78,77 @@ class GPSLapTrigger:
         self.last_time = None
         self.debug_mode = False
         self.timer = Timer()
+        self.last_lcd_update = utime.ticks_ms()
+        self.last_gc_time = utime.ticks_ms()
+        self.gc_interval = 60000  # Run garbage collection every 60 seconds
+        self.last_speed = 0
 
-    def send_command(self, command):
-        self.uart.write(command + '\r\n')
-        utime.sleep_ms(1000)  # Give more time for the command to be processed
+    def setup_gnss(self):
+        def send_command_and_verify(command, expected_response, timeout=2000):
+            self.uart.write(command + '\r\n')
+            start_time = utime.ticks_ms()
+            while utime.ticks_diff(utime.ticks_ms(), start_time) < timeout:
+                if self.uart.any():
+                    response = self.uart.read()
+                    if expected_response in response:
+                        return True
+                utime.sleep_ms(100)
+            return False
 
-    def configure_gnss(self):
-        # Set GPS module to output at 10Hz
-        self.send_command('$PMTK220,100*2F')
-        utime.sleep_ms(1000)  # Wait for 1 second
+        # Step 1: Configure baud rate
+        self.uart = UART(0, baudrate=TARGET_BAUDRATE, tx=Pin(GNSS_TX_PIN), rx=Pin(GNSS_RX_PIN))
+        if not send_command_and_verify('$PMTK000*32', b'$PMTK001,0,3', timeout=1000):
+            self.uart = UART(0, baudrate=INITIAL_BAUDRATE, tx=Pin(GNSS_TX_PIN), rx=Pin(GNSS_RX_PIN))
+            if send_command_and_verify('$PMTK000*32', b'$PMTK001,0,3', timeout=1000):
+                self.log_message(f"GNSS communicating at {INITIAL_BAUDRATE} baud")
+                command = f'$PMTK251,{TARGET_BAUDRATE}*1F'
+                if send_command_and_verify(command, b'$PMTK001,251,3'):
+                    self.log_message(f"GNSS baud rate change command acknowledged")
+                    utime.sleep_ms(100)  # Give the module time to change
+                    self.uart = UART(0, baudrate=TARGET_BAUDRATE, tx=Pin(GNSS_TX_PIN), rx=Pin(GNSS_RX_PIN))
+                    if send_command_and_verify('$PMTK000*32', b'$PMTK001,0,3', timeout=1000):
+                        self.log_message(f"GNSS now communicating at {TARGET_BAUDRATE} baud")
+                    else:
+                        self.log_message(f"Failed to communicate at {TARGET_BAUDRATE} baud after change")
+                        return False
+                else:
+                    self.log_message("Failed to change GNSS baud rate")
+                    return False
+            else:
+                self.log_message("Failed to communicate with GNSS module")
+                return False
+        else:
+            self.log_message(f"GNSS already at {TARGET_BAUDRATE} baud")
+
+        # Step 2: Configure GNSS update rate and message types
+        if send_command_and_verify('$PMTK220,100*2F', b'$PMTK001,220,3'):
+            self.log_message("GNSS configured for 10Hz updates")
+        else:
+            self.log_message("Failed to configure GNSS for 10Hz updates")
+            return False
+
+        if send_command_and_verify('$PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28', b'$PMTK001,314,3'):
+            self.log_message("GNSS configured for GPRMC and GPGGA sentences")
+        else:
+            self.log_message("Failed to configure GNSS sentences")
+            return False
+
+        # Step 3: Verify actual update rate
+        start_time = utime.ticks_ms()
+        message_count = 0
+        while utime.ticks_diff(utime.ticks_ms(), start_time) < 5000:  # Check for 5 seconds
+            if self.uart.any():
+                data = self.uart.read()
+                if b'$GPRMC' in data or b'$GNRMC' in data:
+                    message_count += 1
         
-        # Enable GPRMC and GPGGA sentences only
-        self.send_command('$PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28')
-        utime.sleep_ms(1000)  # Wait for 1 second
+        actual_rate = message_count / 5
+        self.log_message(f"Measured GNSS update rate: {actual_rate} Hz")
+        if abs(actual_rate - 10) > 1:  # Allow for some variance
+            self.log_message("Warning: GNSS update rate not close to 10Hz")
+            return False
 
-        self.log_message("GNSS configured for 10Hz updates")
+        return True
 
     def parse_gnss_data(self, data: bytes):
         try:
@@ -105,6 +169,8 @@ class GPSLapTrigger:
                         
                         filtered_lat = self.lat_filter.update(lat, lat_velocity)
                         filtered_lon = self.lon_filter.update(lon, lon_velocity)
+                        
+                        self.last_speed = self.calculate_speed(self.last_lat, self.last_lon, filtered_lat, filtered_lon, time_diff)
                     else:
                         filtered_lat = self.lat_filter.update(lat, 0)
                         filtered_lon = self.lon_filter.update(lon, 0)
@@ -112,7 +178,7 @@ class GPSLapTrigger:
                     self.last_lat = filtered_lat
                     self.last_lon = filtered_lon
                     self.last_time = current_time
-                    self.last_valid_gnss_time = current_time
+                    self.last_valid_gnss_time = current_time  # Update last valid GNSS time
                     
                     if self.state != 'ready':
                         self.state = 'ready'
@@ -129,6 +195,19 @@ class GPSLapTrigger:
         except Exception as e:
             self.log_message(f"Error parsing GNSS data: {type(e).__name__}: {str(e)}")
         return None, None
+
+    def calculate_speed(self, lat1, lon1, lat2, lon2, time_diff):
+        R = 6371  # Earth radius in kilometers
+
+        lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+        c = 2 * math.asin(math.sqrt(a))
+        distance = R * c
+
+        speed = (distance / time_diff) * 3600  # km/h
+        return round(speed, 1)
 
     def is_crossing_finish_line(self, lat: float, lon: float) -> (bool, float):
         if self.previous_lat is None or self.previous_lon is None or self.last_update_time is None:
@@ -211,27 +290,31 @@ class GPSLapTrigger:
 
     def update_display(self):
         try:
-            self.display.fill(65535)  # White background
-            if self.state == 'initializing':
-                self.display.text('Initializing...', 10, 10, 31)  # Blue (RGB565: 0000000000011111)
-            elif self.state == 'ready':
-                self.display.text('GNSS Signal Acquired', 10, 10, 992)  # Green (RGB565: 0000011111000000)
-            elif self.state == 'signal_lost':
-                self.display.text('GNSS Signal Lost', 10, 10, 63488)  # Red (RGB565: 1111100000000000)
-            elif self.state == 'crossing':
-                self.display.text('Crossing Finish Line', 10, 10, 31)  # Blue
-            elif self.state == 'button_pressed':
-                self.display.text('Button Pressed', 10, 10, 992)  # Green
-            self.display.show()
+            current_time = utime.ticks_ms()
+            if utime.ticks_diff(current_time, self.last_lcd_update) >= LCD_UPDATE_INTERVAL:
+                self.display.fill(65535)  # White background
+                if self.state == 'initializing':
+                    self.display.text('Initializing...', 10, 10, 31)  # Blue
+                elif self.state == 'ready':
+                    self.display.text('GNSS Signal Acquired', 10, 10, 992)  # Green
+                    self.display.text(f'Speed: {self.last_speed} km/h', 10, 30, 31)  # Blue
+                elif self.state == 'signal_lost':
+                    self.display.text('GNSS Signal Lost', 10, 10, 63488)  # Red
+                elif self.state == 'crossing':
+                    self.display.text('Crossing Finish Line', 10, 10, 31)  # Blue
+                elif self.state == 'button_pressed':
+                    self.display.text('Button Pressed', 10, 10, 992)  # Green
+                self.display.show()
+                self.last_lcd_update = current_time
         except Exception as e:
             self.log_message(f"Display update error: {e}")
 
     def flash_screen(self):
         for _ in range(2):  # Flash twice
-            self.display.fill(0)  # 0 represents black
+            self.display.fill(0)  # Black
             self.display.show()
             utime.sleep_ms(500)
-            self.display.fill(65535)  # 65535 represents white
+            self.display.fill(65535)  # White
             self.display.show()
             utime.sleep_ms(500)
 
@@ -242,15 +325,27 @@ class GPSLapTrigger:
 
     def run(self):
         self.update_display()
-        self.configure_gnss()
+        if not self.setup_gnss():
+            self.log_message("Failed to set up GNSS. Exiting.")
+            return
         buffer = bytearray()
 
         while True:
             try:
+                current_time = utime.ticks_ms()
+
+                # Periodic garbage collection
+                if utime.ticks_diff(current_time, self.last_gc_time) >= self.gc_interval:
+                    gc.collect()
+                    self.last_gc_time = current_time
+                    self.log_message("Performed garbage collection")
+
                 if self.uart.any():
                     data = self.uart.read()
                     if data:
                         buffer.extend(data)
+                        if len(buffer) > MAX_BUFFER_SIZE:
+                            buffer = buffer[-MAX_BUFFER_SIZE:]  # Keep only the last MAX_BUFFER_SIZE bytes
                         if b'\n' in buffer:
                             lines = buffer.split(b'\n')
                             for line in lines[:-1]:
