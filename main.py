@@ -51,14 +51,7 @@ class GPSLapTrigger:
     TRACKS = [
             {'right_lat': -27.690622, 'right_lon': 152.654567, 'left_lat': -27.690622, 'left_lon': 152.654688},
             {'right_lat': -27.228533, 'right_lon': 152.964891, 'left_lat': -27.228441, 'left_lon': 152.964919},
-            {'right_lat': -28.262069, 'right_lon': 152.036330, 'left_lat': -28.262086, 'left_lon': 152.036433},
-            {'right_lat': -27.435013, 'right_lon': 153.042565, 'left_lat': -27.435171, 'left_lon': 153.042642},
-            {'right_lat': -27.453118, 'right_lon': 153.043510, 'left_lat': -27.453697, 'left_lon': 153.043340},
-            {'right_lat': -27.453907, 'right_lon': 153.046570, 'left_lat': -27.454613, 'left_lon': 153.046314},
-            {'right_lat': -27.452388, 'right_lon': 153.048588, 'left_lat': -27.452975, 'left_lon': 153.048018}
         ]
-
-
 
     def __init__(self):
             # Initialize GPIO first
