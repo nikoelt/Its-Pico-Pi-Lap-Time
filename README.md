@@ -1,92 +1,90 @@
-# Lap Timer for BMW S1000RR using Raspberry Pi Pico
-
 ## Project Overview
-This project implements a sophisticated lap timer for a BMW S1000RR motorcycle using a Raspberry Pi Pico. The system utilizes GPS data to accurately detect when the motorcycle crosses the finish line and sends a pulse signal. This pulse starts a new lap on the screen. It connects to the middle of the three prong plug on the right hand side of the frame (K46). It features an LCD display for real-time status updates and a manual button for user-triggered pulse sending.
+This project implements a high-precision lap timer for a BMW S1000RR Motorbike using a Raspberry Pi Pico. The system utilizes GPS data to accurately detect when the bike crosses predefined finish lines and sends a pulse signal to start a new lap on the bike's dashboard. It connects to the pins of the three-prong plug on the right-hand side of the frame (K46). The system features an LCD display for real-time status updates, a manual button for user-triggered pulse sending, and a debug mode for on-the-fly diagnostics. However it's designed to be hidden under the tank cover
 
 ## Key Features
-- GPS-based lap timing with finish line detection
-- Adaptive Kalman filtering for improved GPS accuracy
-- LCD display for system status visualization
-- Manual pulse triggering via button press
-- Error handling and logging for robust operation
-- Power management considerations
+- GPS-based lap timing with multi-track finish line detection
+- Adaptive Kalman filtering for enhanced GPS accuracy
+- LCD display for real-time system status visualization
+- Dual-button interface: manual pulse triggering and debug mode toggle
+- Robust error handling and comprehensive logging system
+- Power-efficient operation for extended battery life
+- Configurable for infinate race tracks, anything can be a finish line
 
 ## Hardware Components
 - Raspberry Pi Pico
-- GNSS (GPS) module (I used https://www.waveshare.com/wiki/Pico-GPS-L76B - code overclocks module to 10hz sampling rate)
-- LCD display (I used www.waveshare.com/wiki/Pico-LCD-1.14)
-- Pulse output pin (for timing system integration) - Uses Raspberry Pi Pico for this
-- User input button - Uses LCD display controls for this
-- Relay - (I used KS0011 Keystudio 5V https://wiki.keyestudio.com/Ks0011_keyestudio_5V_Relay_Module)
-- 4.7K Resistor - to drop voltage from 12V to 10V (S1000RR specific requirement)
+- GNSS (GPS) module: I used Waveshare Pico-GPS-L76B (overclocked to 10Hz sampling rate)
+- LCD display: I used Waveshare Pico-LCD-1.14
+- Pulse output: Directly from Raspberry Pi Pico
+- User input buttons: Utilizing LCD display controls
+- Relay: KS0011 Keystudio 5V Relay Module (You should use a solid state relay, I used this one because it was collecting dust in a drawer)
+- Voltage step down: aka 4.7K Resistor (to step down 12V to 10V for S1000RR compatibility)
 
-## Code Structure and Functionality
+## Software Architecture
 
-### Pin Configuration
-The code begins by defining pins for various peripherals:
-- GNSS module (TX and RX)
-- Pulse output
-- User button
-- LCD display (SCK, MOSI, CS, DC, RST, BL)
-
-### Adaptive Kalman Filter
-A custom `AdaptiveKalmanFilter` class is implemented to enhance GPS data accuracy:
-- Dynamically adjusts process variance based on motorcycle velocity
-- Provides smoothed latitude and longitude estimates
-- Improves finish line crossing detection accuracy
+### AdaptiveKalmanFilter Class
+- Implements a Kalman filter with dynamic process variance adjustment
+- Enhances GPS data accuracy based on motorcycle velocity
+- Crucial for precise finish line detection and timing
 
 ### GPSLapTrigger Class
-This is the core class of the system, encapsulating all major functionality:
+The core of the system, managing all major functionalities:
 
-#### Initialization and Setup
-- Configures UART for GNSS communication
-- Sets up SPI for the LCD display
-- Initializes GPIO for pulse output and button input
-- Creates Kalman filter instances for latitude and longitude
+#### Initialization and Configuration
+- Sets up UART for GNSS communication (9600 baud initially, then 38400 baud - for whatever reason this was the highest BAUD rate that was more or less stable on my board, even though it advertises 100K+)
+- Configures SPI for the LCD display
+- Initializes GPIO for pulse output and dual-button input
+- Creates separate Kalman filter instances for latitude and longitude
 
-#### GNSS Handling
-- Configures GNSS module for optimal performance
-- Parses raw GNSS data, converting to decimal degrees
+#### GNSS Data Processing
+- Configures GNSS module for 10Hz update rate
+- Parses NMEA sentences, focusing on GNRMC data
 - Applies Kalman filtering to smooth GPS coordinates
-- Tracks signal validity and handles timeouts
+- Monitors signal quality and handles potential timeouts
 
-#### Finish Line Detection
-- Maintains a list of predefined track finish lines
-- Uses line intersection algorithms to detect crossings
-- Interpolates precise crossing times for accurate lap timing
+#### Finish Line Detection System
+- Maintains an array of predefined track finish lines
+- Utilizes line intersection algorithms for precise crossing detection
+- Interpolates exact crossing times for high-accuracy lap timing
 
-#### User Interface
-- Updates LCD display based on system state (e.g., initializing, ready, signal lost)
-- Handles button press events for manual pulse triggering
-- Provides visual feedback for finish line crossings and button presses
+#### User Interface and Display Management
+- Updates LCD to reflect current system state (e.g., initializing, ready, signal lost, debug mode)
+- Handles dual-button input: one for manual pulse triggering, one for debug mode toggle
+- Provides visual feedback for finish line crossings, button presses, and mode changes
 
-#### Pulse Generation
-- Sends precisely timed pulses upon finish line crossing or button press
+#### Pulse Generation and Timing
+- Sends accurately timed pulses upon finish line crossing or manual button press
+- Implements pulse scheduling for microsecond timing accuracy
 - Configurable pulse duration for compatibility with various timing systems
 
-#### Error Handling and Logging
-- Implements comprehensive error catching and handling
-- Logs system events and errors with timestamps for debugging
+#### Debug Mode and Logging System
+- Toggleable debug mode for enhanced on-site diagnostics
+- Comprehensive logging system with rotating log files
+- Captures system events, errors, and performance metrics
 
-#### Main Loop
-The `run` method orchestrates the system operation:
+#### Main Operational Loop
 - Continuously reads and processes GNSS data
 - Checks for finish line crossings and button presses
-- Updates system state and display
-- Handles GNSS signal loss scenarios
+- Updates system state, display, and logs
+- Manages GNSS signal loss scenarios and recovery
 
-### Power Management
-The code includes considerations for power management, particularly during signal loss, to optimize battery life in real-world racing conditions.
+### Power Efficiency Considerations
+- Implements sleep modes during periods of inactivity
+- Optimizes processing to reduce power consumption
+- Ensures reliable operation throughout extended racing sessions
 
-## Usage
-To run the lap timer system:
-1. Connect all hardware components to the Raspberry Pi Pico.
-2. Upload the code to the Pico.
+## Usage Instructions
+1. Connect all hardware components to the Raspberry Pi Pico as per the pin configuration.
+2. Upload the complete code to the Pico.
 3. Power on the system at the race track.
 4. The system will initialize, acquire GPS signal, and begin monitoring for finish line crossings.
+5. Use Button A for manual pulse triggering - (mostly to double check everything is actually working correctly - word of note, for the S1000RR the rear wheel needs to be in motion for the laptimer to activate. I used a rear stand but you do you boo)
+6. Hold Button B for 3 seconds to toggle debug mode for on-site diagnostics.
 
-## Future Enhancements...?
-- Integration with additional sensors (e.g., accelerometer) for improved accuracy
-- Wireless data transmission for real-time lap time reporting
-- Expanded track database with automatic track recognition
-- User-configurable settings via the LCD interface
+## Customization and Track Configuration
+- Edit the `TRACKS` array in the `GPSLapTrigger` class to add or modify finish line coordinates.
+- Adjust `GNSS_TIMEOUT`, `PULSE_DURATION_MS`, and other constants as needed for specific requirements.
+
+## Troubleshooting
+- If experiencing GPS signal issues, ensure clear sky visibility and check antenna connections.
+- For timing discrepancies, verify the accuracy of finish line coordinates in the `TRACKS` array.
+- Consult the debug logs (accessible in debug mode) for detailed system diagnostics.
