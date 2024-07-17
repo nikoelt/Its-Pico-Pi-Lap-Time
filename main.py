@@ -51,7 +51,14 @@ class GPSLapTrigger:
     TRACKS = [
             {'right_lat': -27.690622, 'right_lon': 152.654567, 'left_lat': -27.690622, 'left_lon': 152.654688},
             {'right_lat': -27.228533, 'right_lon': 152.964891, 'left_lat': -27.228441, 'left_lon': 152.964919},
+            {'right_lat': -28.262069, 'right_lon': 152.036330, 'left_lat': -28.262086, 'left_lon': 152.036433},
+            {'right_lat': -27.435013, 'right_lon': 153.042565, 'left_lat': -27.435171, 'left_lon': 153.042642},
+            {'right_lat': -27.453118, 'right_lon': 153.043510, 'left_lat': -27.453697, 'left_lon': 153.043340},
+            {'right_lat': -27.453907, 'right_lon': 153.046570, 'left_lat': -27.454613, 'left_lon': 153.046314},
+            {'right_lat': -27.452388, 'right_lon': 153.048588, 'left_lat': -27.452975, 'left_lon': 153.048018}
         ]
+
+
 
     def __init__(self):
             # Initialize GPIO first
@@ -190,42 +197,38 @@ class GPSLapTrigger:
         
         self.log_message("Failed to configure GNSS after retries")
 
+
     def parse_gnss_data(self, data: bytes):
         try:
             decoded_data = data.decode('ascii').strip()
-            if self.debug_mode:
-                self.log_message(f"Received GNSS data: {decoded_data}")
             if decoded_data.startswith('$GNRMC') or decoded_data.startswith('$GPRMC'):
                 parts = decoded_data.split(',')
                 if len(parts) > 9 and parts[2] == 'A':
                     lat = self._convert_to_degrees(parts[3], parts[4])
                     lon = self._convert_to_degrees(parts[5], parts[6])
                     
-                    current_time = utime.ticks_ms()
-                    if self.last_lat is not None and self.last_lon is not None and self.last_time is not None:
-                        time_diff = utime.ticks_diff(current_time, self.last_time) / 1000  # in seconds
-                        lat_velocity = (lat - self.last_lat) / time_diff
-                        lon_velocity = (lon - self.last_lon) / time_diff
-                        
+                    if lat is not None and lon is not None:
+                        current_time = utime.ticks_ms()
+                        if self.last_lat is not None and self.last_lon is not None and self.last_time is not None:
+                            time_diff = utime.ticks_diff(current_time, self.last_time) / 1000  # in seconds
+                            lat_velocity = (lat - self.last_lat) / time_diff if time_diff > 0 else 0
+                            lon_velocity = (lon - self.last_lon) / time_diff if time_diff > 0 else 0
+                        else:
+                            lat_velocity = lon_velocity = 0
+
                         filtered_lat = self.lat_filter.update(lat, lat_velocity)
                         filtered_lon = self.lon_filter.update(lon, lon_velocity)
-                    else:
-                        filtered_lat = self.lat_filter.update(lat, 0)
-                        filtered_lon = self.lon_filter.update(lon, 0)
-                    
-                    self.last_lat = filtered_lat
-                    self.last_lon = filtered_lon
-                    self.last_time = current_time
-                    self.last_valid_gnss_time = current_time  # Update last valid GNSS time
-                    
-                    if self.state != 'ready':
-                        self.state = 'ready'
-                        self.update_display()
-                    
-                    if self.debug_mode:
-                        self.log_message(f"Filtered position: ({filtered_lat}, {filtered_lon})")
-                    
-                    return filtered_lat, filtered_lon
+                        
+                        self.last_lat = filtered_lat
+                        self.last_lon = filtered_lon
+                        self.last_time = current_time
+                        self.last_valid_gnss_time = current_time
+                        
+                        if self.state != 'ready':
+                            self.state = 'ready'
+                            self.update_display()
+                        
+                        return filtered_lat, filtered_lon
                 else:
                     if self.state != 'signal_lost':
                         self.state = 'signal_lost'
@@ -233,6 +236,7 @@ class GPSLapTrigger:
         except Exception as e:
             self.log_message(f"Error parsing GNSS data: {type(e).__name__}: {str(e)}")
         return None, None
+
 
     def is_crossing_finish_line(self, lat: float, lon: float) -> (bool, float):
         if self.previous_lat is None or self.previous_lon is None or self.last_update_time is None:
@@ -370,7 +374,7 @@ class GPSLapTrigger:
                     self.last_log_time = current_time
 
                 if self.uart.any():
-                    data = self.uart.read()
+                    data = self.uart.read(self.uart.any())  # Read all available data
                     if data:
                         buffer.extend(data)
                         if len(buffer) > MAX_BUFFER_SIZE:
@@ -444,8 +448,7 @@ class GPSLapTrigger:
 
             except Exception as e:
                 self.log_message(f"Error in main loop: {type(e).__name__}: {str(e)}")
-                utime.sleep_ms(1000)  # Wait a bit before continuing
-
+                utime.sleep_ms(100)  # Short delay to prevent rapid error logging
 
 
 if __name__ == "__main__":
