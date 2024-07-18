@@ -8,7 +8,8 @@ from LCD import LCD_1inch14
 GNSS_TX_PIN = 0
 GNSS_RX_PIN = 1
 PULSE_PIN = 2
-BUTTON_A_PIN = 15
+BUTTON_A_PIN = 15 # Manual Pulse Button to test that all is working 
+BUTTON_B_PIN = 17  # Debug Button - hold 3 seconds to enter debug mode
 
 # LCD configuration
 LCD_BL_PIN = 13
@@ -49,53 +50,48 @@ class AdaptiveKalmanFilter:
 
 class GPSLapTrigger:
     TRACKS = [
-            {'right_lat': -27.690622, 'right_lon': 152.654567, 'left_lat': -27.690622, 'left_lon': 152.654688},
-            {'right_lat': -27.228533, 'right_lon': 152.964891, 'left_lat': -27.228441, 'left_lon': 152.964919},
-            {'right_lat': -28.262069, 'right_lon': 152.036330, 'left_lat': -28.262086, 'left_lon': 152.036433},
-            {'right_lat': -27.435013, 'right_lon': 153.042565, 'left_lat': -27.435171, 'left_lon': 153.042642},
-            {'right_lat': -27.453118, 'right_lon': 153.043510, 'left_lat': -27.453697, 'left_lon': 153.043340},
-            {'right_lat': -27.453907, 'right_lon': 153.046570, 'left_lat': -27.454613, 'left_lon': 153.046314},
-            {'right_lat': -27.452388, 'right_lon': 153.048588, 'left_lat': -27.452975, 'left_lon': 153.048018}
-        ]
-
-
+        {'right_lat': -27.690622, 'right_lon': 152.654567, 'left_lat': -27.690622, 'left_lon': 152.654688},
+        {'right_lat': -27.228533, 'right_lon': 152.964891, 'left_lat': -27.228441, 'left_lon': 152.964919},
+        {'right_lat': -28.262069, 'right_lon': 152.036330, 'left_lat': -28.262086, 'left_lon': 152.036433},
+    ]
 
     def __init__(self):
-            # Initialize GPIO first
-            self.pulse_pin = Pin(PULSE_PIN, Pin.OUT)
-            self.button_a = Pin(BUTTON_A_PIN, Pin.IN, Pin.PULL_UP)
+        # Initialize GPIO
+        self.pulse_pin = Pin(PULSE_PIN, Pin.OUT)
+        self.button_a = Pin(BUTTON_A_PIN, Pin.IN, Pin.PULL_UP)
+        self.button_b = Pin(BUTTON_B_PIN, Pin.IN, Pin.PULL_UP)  # New debug button
 
-            # LCD initialization
-            self.reset_lcd()
+        # LCD initialization
+        self.reset_lcd()
 
-            # UART initialization
-            self.uart = UART(0, baudrate=INITIAL_BAUDRATE, tx=Pin(GNSS_TX_PIN), rx=Pin(GNSS_RX_PIN))
+        # UART initialization
+        self.uart = UART(0, baudrate=INITIAL_BAUDRATE, tx=Pin(GNSS_TX_PIN), rx=Pin(GNSS_RX_PIN))
 
-            # Other initializations
-            self.previous_lat = None
-            self.previous_lon = None
-            self.last_update_time = None
-            self.last_valid_gnss_time = utime.ticks_ms()
-            self.state = 'initializing'
-            self.lat_filter = AdaptiveKalmanFilter(process_variance=0.01, measurement_variance=0.1)
-            self.lon_filter = AdaptiveKalmanFilter(process_variance=0.01, measurement_variance=0.1)
-            self.last_lat = None
-            self.last_lon = None
-            self.last_time = None
-            self.debug_mode = False
-            self.timer = Timer()
-            self.last_lcd_update = utime.ticks_ms()
+        # Other initializations
+        self.previous_lat = None
+        self.previous_lon = None
+        self.last_update_time = None
+        self.last_valid_gnss_time = utime.ticks_ms()
+        self.state = 'initializing'
+        self.lat_filter = AdaptiveKalmanFilter(process_variance=0.01, measurement_variance=0.1)
+        self.lon_filter = AdaptiveKalmanFilter(process_variance=0.01, measurement_variance=0.1)
+        self.last_lat = None
+        self.last_lon = None
+        self.last_time = None
+        self.debug_mode = False
+        self.timer = Timer()
+        self.last_lcd_update = utime.ticks_ms()
 
-            # Logging-related attributes
-            self.log_file_number = 0
-            self.log_line_count = 0
-            self.max_log_lines = 1000
-            self.max_log_files = 5
-            self.log_interval = 1000
-            self.last_log_time = utime.ticks_ms()
+        # Logging-related attributes
+        self.log_file_number = 0
+        self.log_line_count = 0
+        self.max_log_lines = 1000
+        self.max_log_files = 5
+        self.log_interval = 1000
+        self.last_log_time = utime.ticks_ms()
 
-            # Initial display update
-            self.update_display()
+        # Initial display update
+        self.update_display()
 
     def reset_lcd(self):
         try:
@@ -123,27 +119,29 @@ class GPSLapTrigger:
         except Exception as e:
             print(f"LCD reset error: {e}")
 
-
-
-    def log_message(self, message: str):
+    def log_message(self, message: str, force_log=False):
         current_time = utime.ticks_ms()
-        if self.log_line_count >= self.max_log_lines:
-            self.log_file_number = (self.log_file_number + 1) % self.max_log_files
-            self.log_line_count = 0
         
-        log_filename = f"debug_log_{self.log_file_number}.txt"
-        
-        with open(log_filename, "a") as f:
-            f.write(f"[{current_time}] {message}\n")
-        
-        self.log_line_count += 1
-        
-        # If we've reached the maximum number of files, delete the oldest one
-        if self.log_line_count == 0 and self.log_file_number == 0:
-            try:
-                os.remove(f"debug_log_{self.max_log_files-1}.txt")
-            except:
-                pass  # If the file doesn't exist, just continue
+        if self.debug_mode or force_log:
+            print(f"[{current_time}] {message}")
+            
+            if self.log_line_count >= self.max_log_lines:
+                self.log_file_number = (self.log_file_number + 1) % self.max_log_files
+                self.log_line_count = 0
+            
+            log_filename = f"debug_log_{self.log_file_number}.txt"
+            
+            with open(log_filename, "a") as f:
+                f.write(f"[{current_time}] {message}\n")
+            
+            self.log_line_count += 1
+            
+            # If we've reached the maximum number of files, delete the oldest one
+            if self.log_line_count == 0 and self.log_file_number == 0:
+                try:
+                    os.remove(f"debug_log_{self.max_log_files-1}.txt")
+                except:
+                    pass  # If the file doesn't exist, just continue
 
     def configure_gnss(self):
         initial_baud = 9600
@@ -197,7 +195,6 @@ class GPSLapTrigger:
         
         self.log_message("Failed to configure GNSS after retries")
 
-
     def parse_gnss_data(self, data: bytes):
         try:
             decoded_data = data.decode('ascii').strip()
@@ -236,7 +233,6 @@ class GPSLapTrigger:
         except Exception as e:
             self.log_message(f"Error parsing GNSS data: {type(e).__name__}: {str(e)}")
         return None, None
-
 
     def is_crossing_finish_line(self, lat: float, lon: float) -> (bool, float):
         if self.previous_lat is None or self.previous_lon is None or self.last_update_time is None:
@@ -289,12 +285,15 @@ class GPSLapTrigger:
         return (x, y)
 
     def _convert_to_degrees(self, raw_value: str, direction: str) -> float:
-        if raw_value == '': return None
-        value = float(raw_value)
-        degrees = int(value / 100)
-        minutes = value - (degrees * 100)
-        result = degrees + (minutes / 60)
-        return -result if direction in 'SW' else result
+        try:
+            if raw_value == '': return None
+            value = float(raw_value)
+            degrees = int(value / 100)
+            minutes = value - (degrees * 100)
+            result = degrees + (minutes / 60)
+            return -result if direction in 'SW' else result
+        except ValueError:
+            return None
 
     def send_pulse(self):
         self.pulse_pin.on()
@@ -311,12 +310,15 @@ class GPSLapTrigger:
         self.pulse_pin.off()
         self.log_message(f"Pulse sent at scheduled time (duration: {PULSE_DURATION_MS}ms)")
 
-    def is_button_pressed(self) -> bool:
-        if not self.button_a.value():
-            utime.sleep_ms(50)
-            return not self.button_a.value()
+    def is_button_pressed(self, button: Pin) -> bool:
+        if not button.value():
+            utime.sleep_ms(50)  # Debounce
+            return not button.value()
         return False
 
+    def toggle_debug_mode(self):
+        self.debug_mode = not self.debug_mode
+        self.log_message(f"Debug mode {'enabled' if self.debug_mode else 'disabled'}", force_log=True)
 
     def update_display(self):
         try:
@@ -331,12 +333,14 @@ class GPSLapTrigger:
                 self.display.text('Crossing Finish Line', 10, 10, 31)  # Blue
             elif self.state == 'button_pressed':
                 self.display.text('Button Pressed', 10, 10, 992)  # Green
+            
+            # Add debug mode indicator
+            if self.debug_mode:
+                self.display.text('DEBUG', 10, 50, 63488)  # Red text at the bottom
+            
             self.display.show()
         except Exception as e:
             print(f"Display update error: {e}")
-
-
-
 
     def flash_screen(self):
         for _ in range(2):  # Flash twice
@@ -346,11 +350,6 @@ class GPSLapTrigger:
             self.display.fill(65535)  # 65535 represents white
             self.display.show()
             utime.sleep_ms(500)
-
-    def log_message(self, message: str):
-        print(f"[{utime.ticks_ms()}] {message}")
-        with open("debug_log.txt", "a") as f:
-            f.write(f"[{utime.ticks_ms()}] {message}\n")
 
     def run(self):
         self.log_message("Starting run method")
@@ -365,6 +364,7 @@ class GPSLapTrigger:
         performance_check_interval = 10000  # Check every 10 seconds
         missed_messages = 0
         last_timestamp = None
+        debug_button_press_start = None
 
         while True:
             try:
@@ -432,24 +432,34 @@ class GPSLapTrigger:
                         self.update_display()
                         self.log_message("GNSS signal lost")
 
-                if self.is_button_pressed():
-                    self.log_message("Button pressed")
+                # Handle regular pulse button (Button A)
+                if self.is_button_pressed(self.button_a):
+                    self.log_message("Button A pressed")
                     previous_state = self.state
                     self.state = 'button_pressed'
                     self.update_display()
                     self.send_pulse()
                     self.flash_screen()
                     self.log_message("Button pressed, pulse sent")
-                    utime.sleep_ms(500)  # Debounce
-                    self.state = previous_state  # Restore the previous state
+                    self.state = previous_state
                     self.update_display()
+
+                # Handle debug mode button (Button B)
+                if not self.button_b.value():  # Button B is pressed
+                    if debug_button_press_start is None:
+                        debug_button_press_start = utime.ticks_ms()
+                elif debug_button_press_start is not None:
+                    press_duration = utime.ticks_diff(current_time, debug_button_press_start)
+                    if press_duration > 3000:  # 3 seconds
+                        self.toggle_debug_mode()
+                        self.update_display()
+                    debug_button_press_start = None
 
                 utime.sleep_ms(10)  # Small delay to prevent tight looping
 
             except Exception as e:
-                self.log_message(f"Error in main loop: {type(e).__name__}: {str(e)}")
+                self.log_message(f"Error in main loop: {type(e).__name__}: {str(e)}", force_log=True)
                 utime.sleep_ms(100)  # Short delay to prevent rapid error logging
-
 
 if __name__ == "__main__":
     gps_trigger = GPSLapTrigger()
