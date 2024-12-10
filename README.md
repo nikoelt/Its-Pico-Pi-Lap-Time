@@ -16,8 +16,8 @@ This project implements a high-precision lap timer for a BMW S1000RR Motorbike u
 - LCD display: I used Waveshare Pico-LCD-1.14
 - Pulse output: Directly from Raspberry Pi Pico
 - User input buttons: Utilizing LCD display controls
-- Relay: KS0011 Keystudio 5V Relay Module (You should use a solid state relay, I used this one because it was collecting dust in a drawer)
-- Voltage step down: aka 4.7K Resistor (to step down 12V to 10V for S1000RR compatibility)
+- Relay: SSR-10DD 25DD 40DD Single Phase DC Controlled DC SSR Solid State Relay
+- Voltage step down: aka 4.7K Resistor output from the relay into the S1000RR Lap Connector - Three prong front right of the frame)(to step down 12V to 10V for S1000RR compatibility)
 
 ## Software Architecture
 
@@ -85,6 +85,13 @@ The core of the system, managing all major functionalities:
 - Adjust `GNSS_TIMEOUT`, `PULSE_DURATION_MS`, and other constants as needed for specific requirements.
 
 ## Troubleshooting
-- If experiencing GPS signal issues, ensure clear sky visibility and check antenna connections.
-- For timing discrepancies, verify the accuracy of finish line coordinates in the `TRACKS` array.
+- If experiencing GPS signal issues, ensure clear sky visibility and check antenna connections. The only two good places for antenna are over the very front dash cover (under the windshield) or attached to the rear cowling
+- For timing discrepancies, verify the accuracy of finish line coordinates in the `TRACKS` array. Recommend Google Earth
 - Consult the debug logs (accessible in debug mode) for detailed system diagnostics.
+- Put the bike on the rear stand, start in first gear and press B button to manually send a pulse into the system to see if you wired up the thing correctly. CAUTION triggers under 10 seconds are ignored by the BMW Lap Computer
+
+- S1000RR GEN 3 Integration
+- ![IMG_1812](https://github.com/user-attachments/assets/74d867d1-6cb6-4d9a-8565-2f2268c05a29)
+![IMG_1814](https://github.com/user-attachments/assets/823b9c84-b33c-4fc5-8cbd-228a627e6ac4)
+![IMG_1813](https://github.com/user-attachments/assets/8e38d66f-ded2-4444-a285-9e8a97157921)
+
