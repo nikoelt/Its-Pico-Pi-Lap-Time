@@ -30,6 +30,10 @@ MAX_BUFFER_SIZE = 1024
 # LCD update interval (in milliseconds)
 LCD_UPDATE_INTERVAL = 1000
 
+# Display dimensions (for Waveshare Pico-LCD-1.14, typically 240x135)
+DISPLAY_WIDTH = 240
+DISPLAY_HEIGHT = 135
+
 class AdaptiveKalmanFilter:
     def __init__(self, process_variance, measurement_variance, initial_value=0):
         self.process_variance = process_variance
@@ -116,13 +120,24 @@ class GPSLapTrigger:
             self.pwm.freq(1000)
             self.pwm.duty_u16(32768)  # Set backlight to 50% brightness
 
-            # Clear the display and show a reset message
-            self.display.fill(0)  # Black background
-            self.display.text('LCD Reset', 10, 10, 65535)  # White text
+            # Clear the display and show a reset message in a larger, centered font.
+            self.display.fill(65535)  # White background
+            self.draw_centered_text("LCD Reset", y=DISPLAY_HEIGHT//2 - 12, color=0, scale=3)
             self.display.show()
             utime.sleep_ms(1000)  # Show reset message for 1 second
         except Exception as e:
             print(f"LCD reset error: {e}")
+
+    def draw_centered_text(self, text, y, color, scale=3):
+        """
+        Draws the given text centered horizontally.
+        Assumes a base character width of 8 pixels (multiplied by scale).
+        """
+        char_width = 8 * scale
+        text_width = len(text) * char_width
+        x = (DISPLAY_WIDTH - text_width) // 2
+        # Assuming the LCD library's text() method accepts a 'scale' parameter.
+        self.display.text(text, x, y, color, scale)
 
     def log_message(self, message: str, force_log=False):
         current_time = utime.ticks_ms()
@@ -332,32 +347,49 @@ class GPSLapTrigger:
 
     def update_display(self):
         try:
-            self.display.fill(65535)  # White background
-            if self.state == 'initializing':
-                self.display.text('Initializing...', 10, 10, 31)  # Blue
-            elif self.state == 'ready':
-                self.display.text('GNSS Signal Acquired', 10, 10, 992)  # Green
-            elif self.state == 'signal_lost':
-                self.display.text('GNSS Signal Lost', 10, 10, 63488)  # Red
-            elif self.state == 'crossing':
-                self.display.text('Crossing Finish Line', 10, 10, 31)  # Blue
-            elif self.state == 'button_pressed':
-                self.display.text('Button Pressed', 10, 10, 992)  # Green
+            # Clear the screen with a white background.
+            self.display.fill(65535)
             
-            # Add debug mode indicator
+            # Select message and color based on current state.
+            if self.state == 'initializing':
+                message = "Initializing..."
+                color = 0x001F  # Blue
+            elif self.state == 'ready':
+                message = "GNSS Signal Acquired"
+                color = 0x07E0  # Green
+            elif self.state == 'signal_lost':
+                message = "GNSS Signal Lost"
+                color = 0xF800  # Red
+            elif self.state == 'crossing':
+                message = "Crossing Finish Line"
+                color = 0x001F  # Blue
+            elif self.state == 'button_pressed':
+                message = "Button Pressed"
+                color = 0x07E0  # Green
+            else:
+                message = "Status Unknown"
+                color = 0x0000  # Black
+            
+            # Draw the main status message centered on the display.
+            # Using a larger scale (3) for legibility.
+            self.draw_centered_text(message, y=DISPLAY_HEIGHT//2 - 16, color=color, scale=3)
+
+            # If in debug mode, add a smaller debug indicator at the bottom.
             if self.debug_mode:
-                self.display.text('DEBUG', 10, 50, 63488)  # Red text at the bottom
+                debug_msg = "DEBUG MODE"
+                self.display.text(debug_msg, 10, DISPLAY_HEIGHT - 20, 0xF800, 2)
             
             self.display.show()
         except Exception as e:
             print(f"Display update error: {e}")
 
     def flash_screen(self):
-        for _ in range(2):  # Flash twice
-            self.display.fill(0)  # Black
+        # Simple flash: alternate black and white twice.
+        for _ in range(2):
+            self.display.fill(0)
             self.display.show()
             utime.sleep_ms(500)
-            self.display.fill(65535)  # White
+            self.display.fill(65535)
             self.display.show()
             utime.sleep_ms(500)
 
