@@ -8,7 +8,7 @@ from LCD import LCD_1inch14
 GNSS_TX_PIN = 0
 GNSS_RX_PIN = 1
 PULSE_PIN = 2
-BUTTON_A_PIN = 15 # Manual Pulse Button to test that all is working 
+BUTTON_A_PIN = 15  # Manual Pulse Button to test that all is working 
 BUTTON_B_PIN = 17  # Debug Button - hold 3 seconds to enter debug mode
 
 # LCD configuration
@@ -59,7 +59,7 @@ class GPSLapTrigger:
         # Initialize GPIO
         self.pulse_pin = Pin(PULSE_PIN, Pin.OUT)
         self.button_a = Pin(BUTTON_A_PIN, Pin.IN, Pin.PULL_UP)
-        self.button_b = Pin(BUTTON_B_PIN, Pin.IN, Pin.PULL_UP)  # New debug button
+        self.button_b = Pin(BUTTON_B_PIN, Pin.IN, Pin.PULL_UP)  # Debug button
 
         # LCD initialization
         self.reset_lcd()
@@ -79,7 +79,12 @@ class GPSLapTrigger:
         self.last_lon = None
         self.last_time = None
         self.debug_mode = False
-        self.timer = Timer()
+
+        # Timers for scheduled pulse and pulse duration handling
+        self.scheduled_timer = Timer()
+        self.pulse_timer = Timer()
+        self.scheduled_pulse_pending = False
+
         self.last_lcd_update = utime.ticks_ms()
 
         # Logging-related attributes
@@ -265,8 +270,8 @@ class GPSLapTrigger:
         if intersection:
             dx_finish, dy_finish = intersection[0] - lat1, intersection[1] - lon1
             distance_to_finish = math.sqrt(dx_finish**2 + dy_finish**2)
-            time_fraction = distance_to_finish / total_distance
-            crossing_time = self.last_update_time + int(time_fraction * 100)  # 100ms between updates
+            time_fraction = distance_to_finish / total_distance if total_distance else 0
+            crossing_time = self.last_update_time + int(time_fraction * 100)  # assuming 100ms between updates
             return crossing_time
         return None
 
@@ -286,7 +291,8 @@ class GPSLapTrigger:
 
     def _convert_to_degrees(self, raw_value: str, direction: str) -> float:
         try:
-            if raw_value == '': return None
+            if raw_value == '': 
+                return None
             value = float(raw_value)
             degrees = int(value / 100)
             minutes = value - (degrees * 100)
@@ -296,19 +302,23 @@ class GPSLapTrigger:
             return None
 
     def send_pulse(self):
+        # Non-blocking pulse: turn on the pulse pin and schedule turning it off via pulse_timer.
         self.pulse_pin.on()
-        utime.sleep_ms(PULSE_DURATION_MS)
+        self.log_message(f"Pulse started (duration: {PULSE_DURATION_MS}ms)")
+        self.pulse_timer.init(mode=Timer.ONE_SHOT, period=PULSE_DURATION_MS, callback=self.end_pulse)
+
+    def end_pulse(self, t):
         self.pulse_pin.off()
-        self.log_message(f"Pulse sent (duration: {PULSE_DURATION_MS}ms)")
+        self.log_message("Pulse ended")
 
     def schedule_pulse(self, delay_ms):
-        self.timer.init(mode=Timer.ONE_SHOT, period=delay_ms, callback=self.timed_pulse)
+        # Schedule a pulse by using a timer callback that sets a flag.
+        self.scheduled_pulse_pending = False  # Clear flag before scheduling
+        self.scheduled_timer.init(mode=Timer.ONE_SHOT, period=delay_ms, callback=self.scheduled_pulse_callback)
 
-    def timed_pulse(self, t):
-        self.pulse_pin.on()
-        utime.sleep_ms(PULSE_DURATION_MS)
-        self.pulse_pin.off()
-        self.log_message(f"Pulse sent at scheduled time (duration: {PULSE_DURATION_MS}ms)")
+    def scheduled_pulse_callback(self, t):
+        # This callback (running in interrupt context) only sets a flag.
+        self.scheduled_pulse_pending = True
 
     def is_button_pressed(self, button: Pin) -> bool:
         if not button.value():
@@ -344,10 +354,10 @@ class GPSLapTrigger:
 
     def flash_screen(self):
         for _ in range(2):  # Flash twice
-            self.display.fill(0)  # 0 represents black
+            self.display.fill(0)  # Black
             self.display.show()
             utime.sleep_ms(500)
-            self.display.fill(65535)  # 65535 represents white
+            self.display.fill(65535)  # White
             self.display.show()
             utime.sleep_ms(500)
 
@@ -373,6 +383,12 @@ class GPSLapTrigger:
                     self.log_message("Loop iteration")
                     self.last_log_time = current_time
 
+                # Check for a scheduled pulse (set via timer callback)
+                if self.scheduled_pulse_pending:
+                    self.scheduled_pulse_pending = False
+                    self.log_message("Scheduled pulse triggered")
+                    self.send_pulse()
+
                 if self.uart.any():
                     data = self.uart.read(self.uart.any())  # Read all available data
                     if data:
@@ -387,9 +403,12 @@ class GPSLapTrigger:
                                 if len(parts) > 1:
                                     current_timestamp = parts[1]
                                     if last_timestamp:
-                                        time_diff = float(current_timestamp) - float(last_timestamp)
-                                        if time_diff > 0.11:  # More than 110ms between messages
-                                            missed_messages += 1
+                                        try:
+                                            time_diff = float(current_timestamp) - float(last_timestamp)
+                                            if time_diff > 0.11:  # More than 110ms between messages
+                                                missed_messages += 1
+                                        except Exception as e:
+                                            self.log_message(f"Timestamp conversion error: {e}")
                                     last_timestamp = current_timestamp
                                 lat, lon = self.parse_gnss_data(line)
                                 if lat is not None and lon is not None:
@@ -401,7 +420,7 @@ class GPSLapTrigger:
                                         self.log_message("Finish line crossed")
                                         self.state = 'crossing'
                                         self.update_display()
-                                        delay = crossing_time - current_time
+                                        delay = crossing_time - current_time if crossing_time is not None else 0
                                         if delay > 0:
                                             self.schedule_pulse(delay)
                                             self.log_message(f"Pulse scheduled for {delay}ms from now")
