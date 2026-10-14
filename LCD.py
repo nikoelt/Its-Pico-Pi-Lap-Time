@@ -1,6 +1,14 @@
-from machine import Pin,SPI,PWM
+"""Waveshare Pico-LCD-1.14 V2 (ST7789), 240 x 135 landscape.
+
+Pin assignments, orientation, offsets and tuning registers follow the Waveshare
+example. Reset/wake timing follows the ST7789VW controller specification.
+Colours are byte-swapped for the little-endian MicroPython RGB565 framebuffer
+sent directly over SPI (the controller expects the most-significant byte first).
+"""
+
+from machine import Pin, SPI
 import framebuf
-import time
+import utime
 
 BL = 13
 DC = 8
@@ -10,239 +18,77 @@ SCK = 10
 CS = 9
 
 
+def rgb565(red, green, blue):
+    colour = ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3)
+    return ((colour & 0xff) << 8) | (colour >> 8)
+
+
 class LCD_1inch14(framebuf.FrameBuffer):
     def __init__(self):
         self.width = 240
         self.height = 135
-        
-        self.cs = Pin(CS,Pin.OUT)
-        self.rst = Pin(RST,Pin.OUT)
-        
-        self.cs(1)
-        self.spi = SPI(1)
-        self.spi = SPI(1,1000_000)
-        self.spi = SPI(1,10000_000,polarity=0, phase=0,sck=Pin(SCK),mosi=Pin(MOSI),miso=None)
-        self.dc = Pin(DC,Pin.OUT)
-        self.dc(1)
+        self.cs = Pin(CS, Pin.OUT, value=1)
+        self.rst = Pin(RST, Pin.OUT, value=1)
+        self.dc = Pin(DC, Pin.OUT, value=1)
+        self.spi = SPI(1, baudrate=10000000, polarity=0, phase=0,
+                       sck=Pin(SCK), mosi=Pin(MOSI), miso=None)
         self.buffer = bytearray(self.height * self.width * 2)
         super().__init__(self.buffer, self.width, self.height, framebuf.RGB565)
+        self.red = rgb565(255, 0, 0)
+        self.green = rgb565(0, 255, 0)
+        self.blue = rgb565(0, 0, 255)
+        self.white = rgb565(255, 255, 255)
         self.init_display()
-        
-        self.red   =   0x07E0
-        self.green =   0x001f
-        self.blue  =   0xf800
-        self.white =   0xffff
-        
-    def write_cmd(self, cmd):
-        self.cs(1)
+
+    def write_cmd(self, command):
         self.dc(0)
         self.cs(0)
-        self.spi.write(bytearray([cmd]))
-        self.cs(1)
+        try:
+            self.spi.write(bytes((command,)))
+        finally:
+            self.cs(1)
 
-    def write_data(self, buf):
-        self.cs(1)
+    def write_data(self, data):
         self.dc(1)
         self.cs(0)
-        self.spi.write(bytearray([buf]))
-        self.cs(1)
+        try:
+            self.spi.write(bytes((data,)) if isinstance(data, int) else data)
+        finally:
+            self.cs(1)
+
+    def _command(self, command, data=b''):
+        self.write_cmd(command)
+        if data:
+            self.write_data(data)
 
     def init_display(self):
-        """Initialize dispaly"""  
         self.rst(1)
+        utime.sleep_ms(5)
         self.rst(0)
+        utime.sleep_ms(20)  # Reset pulse exceeds the specified 10 us minimum.
         self.rst(1)
-        
-        self.write_cmd(0x36)
-        self.write_data(0x70)
-
-        self.write_cmd(0x3A) 
-        self.write_data(0x05)
-
-        self.write_cmd(0xB2)
-        self.write_data(0x0C)
-        self.write_data(0x0C)
-        self.write_data(0x00)
-        self.write_data(0x33)
-        self.write_data(0x33)
-
-        self.write_cmd(0xB7)
-        self.write_data(0x35) 
-
-        self.write_cmd(0xBB)
-        self.write_data(0x19)
-
-        self.write_cmd(0xC0)
-        self.write_data(0x2C)
-
-        self.write_cmd(0xC2)
-        self.write_data(0x01)
-
-        self.write_cmd(0xC3)
-        self.write_data(0x12)   
-
-        self.write_cmd(0xC4)
-        self.write_data(0x20)
-
-        self.write_cmd(0xC6)
-        self.write_data(0x0F) 
-
-        self.write_cmd(0xD0)
-        self.write_data(0xA4)
-        self.write_data(0xA1)
-
-        self.write_cmd(0xE0)
-        self.write_data(0xD0)
-        self.write_data(0x04)
-        self.write_data(0x0D)
-        self.write_data(0x11)
-        self.write_data(0x13)
-        self.write_data(0x2B)
-        self.write_data(0x3F)
-        self.write_data(0x54)
-        self.write_data(0x4C)
-        self.write_data(0x18)
-        self.write_data(0x0D)
-        self.write_data(0x0B)
-        self.write_data(0x1F)
-        self.write_data(0x23)
-
-        self.write_cmd(0xE1)
-        self.write_data(0xD0)
-        self.write_data(0x04)
-        self.write_data(0x0C)
-        self.write_data(0x11)
-        self.write_data(0x13)
-        self.write_data(0x2C)
-        self.write_data(0x3F)
-        self.write_data(0x44)
-        self.write_data(0x51)
-        self.write_data(0x2F)
-        self.write_data(0x1F)
-        self.write_data(0x1F)
-        self.write_data(0x20)
-        self.write_data(0x23)
-        
-        self.write_cmd(0x21)
-
-        self.write_cmd(0x11)
-
-        self.write_cmd(0x29)
+        utime.sleep_ms(120)  # Sleep-out may not be sent sooner after reset.
+        self._command(0x36, b'\x70')  # Existing landscape orientation; RGB order.
+        self._command(0x3a, b'\x05')  # 16-bit RGB565 serial interface.
+        self._command(0xb2, b'\x0c\x0c\x00\x33\x33')
+        self._command(0xb7, b'\x35')
+        self._command(0xbb, b'\x19')
+        self._command(0xc0, b'\x2c')
+        self._command(0xc2, b'\x01')
+        self._command(0xc3, b'\x12')
+        self._command(0xc4, b'\x20')
+        self._command(0xc6, b'\x0f')
+        self._command(0xd0, b'\xa4\xa1')
+        self._command(0xe0, b'\xd0\x04\x0d\x11\x13\x2b\x3f\x54\x4c\x18\x0d\x0b\x1f\x23')
+        self._command(0xe1, b'\xd0\x04\x0c\x11\x13\x2c\x3f\x44\x51\x2f\x1f\x1f\x20\x23')
+        self._command(0x21)  # Panel requires display inversion, as in vendor demo.
+        self._command(0x11)  # Sleep out.
+        utime.sleep_ms(120)  # Exceeds the required 5 ms command settling time.
+        self._command(0x29)  # Display on.
 
     def show(self):
-        self.write_cmd(0x2A)
-        self.write_data(0x00)
-        self.write_data(0x28)
-        self.write_data(0x01)
-        self.write_data(0x17)
-        
-        self.write_cmd(0x2B)
-        self.write_data(0x00)
-        self.write_data(0x35)
-        self.write_data(0x00)
-        self.write_data(0xBB)
-        
-        self.write_cmd(0x2C)
-        
-        self.cs(1)
-        self.dc(1)
-        self.cs(0)
-        self.spi.write(self.buffer)
-        self.cs(1)
-  
-if __name__=='__main__':
-    pwm = PWM(Pin(BL))
-    pwm.freq(1000)
-    pwm.duty_u16(32768)#max 65535
-
-    LCD = LCD_1inch14()
-    #color BRG
-    LCD.fill(LCD.white)
- 
-    LCD.show()
-    LCD.text("Raspberry Pi Pico",90,40,LCD.red)
-    LCD.text("PicoGo",90,60,LCD.green)
-    LCD.text("Pico-LCD-1.14",90,80,LCD.blue)
-    
-    
-    
-    LCD.hline(10,10,220,LCD.blue)
-    LCD.hline(10,125,220,LCD.blue)
-    LCD.vline(10,10,115,LCD.blue)
-    LCD.vline(230,10,115,LCD.blue)
-
-    
-    LCD.show()
-    keyA = Pin(15,Pin.IN,Pin.PULL_UP)
-    keyB = Pin(17,Pin.IN,Pin.PULL_UP)
-    
-    key2 = Pin(2 ,Pin.IN,Pin.PULL_UP) #上
-    key3 = Pin(3 ,Pin.IN,Pin.PULL_UP)#中
-    key4 = Pin(16 ,Pin.IN,Pin.PULL_UP)#左
-    key5 = Pin(18 ,Pin.IN,Pin.PULL_UP)#下
-    key6 = Pin(20 ,Pin.IN,Pin.PULL_UP)#右
-    
-    while(1):
-        if(keyA.value() == 0):
-            LCD.fill_rect(208,12,20,20,LCD.red)
-            print("A")
-        else :
-            LCD.fill_rect(208,12,20,20,LCD.white)
-            LCD.rect(208,12,20,20,LCD.red)
-            
-            
-        if(keyB.value() == 0):
-            LCD.fill_rect(208,103,20,20,LCD.red)
-            print("B")
-        else :
-            LCD.fill_rect(208,103,20,20,LCD.white)
-            LCD.rect(208,103,20,20,LCD.red)
-    
-    
-    
-    
-        if(key2.value() == 0):#上
-            LCD.fill_rect(37,35,20,20,LCD.red)
-            print("UP")
-        else :
-            LCD.fill_rect(37,35,20,20,LCD.white)
-            LCD.rect(37,35,20,20,LCD.red)
-            
-            
-        if(key3.value() == 0):#中
-            LCD.fill_rect(37,60,20,20,LCD.red)
-            print("CTRL")
-        else :
-            LCD.fill_rect(37,60,20,20,LCD.white)
-            LCD.rect(37,60,20,20,LCD.red)
-            
-        
-
-        if(key4.value() == 0):#左
-            LCD.fill_rect(12,60,20,20,LCD.red)
-            print("LEFT")
-        else :
-            LCD.fill_rect(12,60,20,20,LCD.white)
-            LCD.rect(12,60,20,20,LCD.red)
-            
-            
-        if(key5.value() == 0):#下
-            LCD.fill_rect(37,85,20,20,LCD.red)
-            print("DOWN")
-        else :
-            LCD.fill_rect(37,85,20,20,LCD.white)
-            LCD.rect(37,85,20,20,LCD.red)
-            
-            
-        if(key6.value() == 0):#右
-            LCD.fill_rect(62,60,20,20,LCD.red)
-            print("RIGHT")
-        else :
-            LCD.fill_rect(62,60,20,20,LCD.white)
-            LCD.rect(62,60,20,20,LCD.red)
-
-            
-        LCD.show()
-    time.sleep(1)
-    LCD.fill(0xFFFF)
-
+        # Same visible GRAM window as the original driver: 240 x 135 pixels.
+        self._command(0x2a, b'\x00\x28\x01\x17')
+        self._command(0x2b, b'\x00\x35\x00\xbb')
+        self.write_cmd(0x2c)
+        self.write_data(self.buffer)

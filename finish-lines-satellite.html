@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>S1000RR finish lines — satellite</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{color-scheme:light dark;--surface:light-dark(#fff,#181818);--text:light-dark(#202020,#eee);--line:#00cfff}
+*{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--text);font:16px system-ui,sans-serif}
+header{padding:14px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}h1{font-size:18px;font-weight:500;margin:0}
+select,button{font:inherit;color:var(--text);background:var(--surface);border:1px solid #8888;border-radius:6px;padding:9px 12px;min-height:42px}
+label{display:flex;align-items:center;gap:10px}#map{height:calc(100vh - 145px);min-height:380px;width:100%}footer{padding:12px 18px;display:flex;flex-wrap:wrap;gap:8px 24px;font-size:14px}
+.endpoint{background:var(--surface);color:var(--text);border:2px solid var(--line);border-radius:50%;width:26px;height:26px;text-align:center;line-height:22px;font-size:13px;font-weight:600}
+.line-label{white-space:nowrap;background:var(--surface);color:var(--text);border-radius:4px;padding:3px 6px;font-size:13px;box-shadow:0 1px 5px #0005}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--surface);color:var(--text)}.leaflet-control-attribution{background:#ffffffdd;color:#222}.leaflet-control-attribution a{color:#14527f}
+#status{font-size:14px;margin-left:auto}.margin-control{font-size:14px;flex-wrap:wrap}.margin-control input{width:150px;accent-color:#13bfa5}#coordinates{overflow-wrap:anywhere}@media(max-width:500px){header{padding:10px}label{width:100%}select{max-width:calc(100% - 80px);flex:1}#status{margin-left:0}#map{height:60vh}footer{padding:10px}}
+</style></head><body>
+<header><h1>Saved finish lines · satellite</h1><label>Line <select id="line" aria-label="Finish line">
+<option value="all">Overview — all three</option><option value="0" selected>1 — Queensland Raceway</option>
+<option value="1">2 — Lakeside Raceway</option><option value="2">3 — Morgan Park (Warwick)</option>
+</select></label><label class="margin-control">Margin preview <input id="margin" type="range" min="0" max="30" step="1" value="10" aria-label="Extra metres at each finish-line end"><span id="margin-value">10 m / end</span></label><span id="status" role="status">Loading satellite imagery…</span></header>
+<div id="map" role="region" aria-label="Satellite map with saved GPS finish lines"></div>
+<footer><span id="coordinates"></span><span id="length"></span><span>Blue: saved line · Green: gate extension · Slider changes preview only</span></footer>
+<script type="application/json" id="tracks">[{"right_lat": "-27.690622", "right_lon": "152.654567", "left_lat": "-27.690622", "left_lon": "152.654688"}, {"right_lat": "-27.228533", "right_lon": "152.964891", "left_lat": "-27.228441", "left_lon": "152.964919"}, {"right_lat": "-28.262069", "right_lon": "152.036330", "left_lat": "-28.262086", "left_lon": "152.036433"}]</script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const tracks=JSON.parse(document.getElementById('tracks').textContent).map((t,index)=>{
+ const left=[+t.left_lat,+t.left_lon],right=[+t.right_lat,+t.right_lon];
+ const centre=[(left[0]+right[0])/2,(left[1]+right[1])/2];
+ const length=Math.hypot((right[1]-left[1])*111320*Math.cos(centre[0]*Math.PI/180),(right[0]-left[0])*111320);
+ const name=['Queensland Raceway','Lakeside Raceway','Morgan Park'][index];
+ return {index,name,left,right,centre,length};
+});
+const map=L.map('map',{scrollWheelZoom:true}).setView(tracks[0].centre,19);
+const imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+ maxZoom:22,maxNativeZoom:19,attribution:'Imagery © Esri, Vantor, Earthstar Geographics, GIS User Community'}).addTo(map);
+const lines=L.layerGroup().addTo(map),labels=L.layerGroup().addTo(map),extensions=L.layerGroup().addTo(map);
+const margins=tracks.map(()=>10);
+const marginInput=document.getElementById('margin'),marginValue=document.getElementById('margin-value');
+const status=document.getElementById('status');
+let tileErrors=0;
+imagery.on('loading',()=>{tileErrors=0;status.textContent='Loading satellite imagery…';});
+imagery.on('load',()=>status.textContent=tileErrors?'Some imagery tiles failed to load':'Satellite imagery · exact saved coordinates');
+imagery.on('tileerror',()=>{tileErrors++;status.textContent='Some imagery tiles failed to load';});
+tracks.forEach(t=>L.polyline([t.left,t.right],{color:'#00cfff',weight:5,opacity:1}).bindPopup(`${t.index+1} — ${t.name}<br>L: ${t.left.map(n=>n.toFixed(7)).join(', ')}<br>R: ${t.right.map(n=>n.toFixed(7)).join(', ')}`).addTo(lines));
+function show(value){
+ labels.clearLayers();extensions.clearLayers();
+ marginInput.disabled=value==='all';
+ marginInput.value=value==='all'?0:margins[Number(value)];
+ marginValue.textContent=marginInput.value+' m / end';
+ const nativeZoom=value==='2'?17:19;
+ if(imagery.options.maxNativeZoom!==nativeZoom){imagery.options.maxNativeZoom=nativeZoom;imagery.redraw();}
+ if(value==='all'){
+  map.fitBounds(L.latLngBounds(tracks.flatMap(t=>[t.left,t.right])),{padding:[40,40]});
+  tracks.forEach(t=>L.marker(t.centre,{title:t.name,icon:L.divIcon({className:'',html:`<span class="line-label">${t.index+1}</span>`,iconSize:[28,24]})}).addTo(labels));
+  document.getElementById('coordinates').textContent='QR · Lakeside · Morgan Park';document.getElementById('length').textContent='';
+ }else{
+  const t=tracks[Number(value)];map.setView(t.centre,19);
+  drawMargin(t);
+  [['L',t.left],['R',t.right]].forEach(([name,p])=>L.marker(p,{title:`Line ${t.index+1} ${name} endpoint`,icon:L.divIcon({className:'',html:`<div class="endpoint">${name}</div>`,iconSize:[26,26],iconAnchor:[13,13]})}).bindPopup(`${name}: ${p.map(n=>n.toFixed(7)).join(', ')}`).addTo(labels));
+  document.getElementById('coordinates').textContent=`L: ${t.left.map(n=>n.toFixed(7)).join(', ')} · R: ${t.right.map(n=>n.toFixed(7)).join(', ')}`;
+  updateLength(t);
+ }
+}
+function updateLength(t){document.getElementById('length').textContent=`${t.length.toFixed(1)} m saved · ${(t.length+2*margins[t.index]).toFixed(1)} m gate`;}
+function drawMargin(t){
+ extensions.clearLayers();updateLength(t);const metres=margins[t.index];if(!metres)return;
+ const scale=111320,cos=Math.cos(t.centre[0]*Math.PI/180);
+ const dx=(t.right[1]-t.left[1])*scale*cos,dy=(t.right[0]-t.left[0])*scale,len=Math.hypot(dx,dy);
+ const lat=dy/len*metres/scale,lon=dx/len*metres/(scale*cos);
+ const a=[t.left[0]-lat,t.left[1]-lon],b=[t.right[0]+lat,t.right[1]+lon];
+ [[a,t.left],[t.right,b]].forEach(pair=>L.polyline(pair,{color:'#13bfa5',weight:5,dashArray:'8 6'}).addTo(extensions));
+ [a,b].forEach(p=>L.circleMarker(p,{radius:5,color:'#13bfa5',fillColor:'#13bfa5',fillOpacity:1}).addTo(extensions));
+}
+marginInput.addEventListener('input',()=>{const value=document.getElementById('line').value;if(value==='all')return;margins[Number(value)]=Number(marginInput.value);marginValue.textContent=marginInput.value+' m / end';drawMargin(tracks[Number(value)]);});
+document.getElementById('line').addEventListener('change',event=>show(event.target.value));show(document.getElementById('line').value);
+</script></body></html>

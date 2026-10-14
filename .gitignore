@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+debug_log_*.txt
+*.bak
+output/
+.DS_Store
+docs/vendor/*.pdf
+docs/vendor/*.zip
+docs/vendor/*.7z
